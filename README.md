@@ -1,7 +1,9 @@
 # ipswfetch
 
-Download the **iBSS, iBEC, DeviceTree and kernelcache** from any Apple IPSW
-without downloading the whole (often 5–10 GB) restore image.
+Download any image from any Apple IPSW over HTTP Range requests — by default
+the **iBSS, iBEC, DeviceTree and kernelcache**, or any other tagged image
+(`-image RestoreRamDisk`, `-tags` to list them) — without downloading the
+whole (often 5–10 GB) restore image.
 
 The tool:
 

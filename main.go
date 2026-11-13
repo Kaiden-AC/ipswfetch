@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 The ipswfetch contributors
 
-// ipswfetch downloads the iBSS, iBEC, DeviceTree and kernelcache out of the
-// IPSW for any device and version, straight from Apple's CDN, without
-// downloading the whole multi-gigabyte archive.
+// ipswfetch downloads images from the IPSW for any device and version,
+// straight from Apple's CDN, without downloading the whole multi-gigabyte
+// restore image. Any image with a known BuildManifest tag can be fetched;
+// the iBSS, iBEC, DeviceTree and kernelcache are downloaded by default.
 //
 // Usage:
 //
