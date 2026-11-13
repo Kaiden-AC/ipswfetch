@@ -1,0 +1,37 @@
+ipswfetch - downloads IPSW components directly from Apple's CDN.
+
+Copyright (C) 2026 The ipswfetch contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License version 3 as published by the
+Free Software Foundation. See LICENSE for the full text of the GNU GPLv3.
+
+-------------------------------------------------------------------------------
+
+This project was developed with the help of the following works:
+
+wikiproxy-go - https://github.com/LukeZGD/wikiproxy-go
+  Copyright (c) 2026 LukeZGD
+  License: MIT (see LICENSES/wikiproxy-go-LICENSE)
+  Portions of the The Apple Wiki client in wiki.go are derived from
+  wikiproxy-go (MediaWiki search/parse API usage, the firmware keys namespace,
+  the browser User-Agent, and the wikitext template parsing approach).
+  The copyright notice and permission notice from the MIT License are retained
+  in LICENSES/wikiproxy-go-LICENSE as required.
+
+partialZipBrowser - https://github.com/tihmstar/partialZipBrowser
+  Copyright (c) 2015 tihmstar
+  License: GNU Lesser General Public License v3.0 (see LICENSES/partialZipBrowser-LICENSE)
+  ipswfetch re-implements the remote-ZIP browsing technique used by
+  partialZipBrowser (reading the end-of-central-directory and central directory
+  of a ZIP over HTTP Range requests, then downloading individual entries by
+  range) as a self-contained Go implementation using only the standard library.
+  No source code from partialZipBrowser or libfragmentzip is included in this
+  project; the attribution is given because that tool's approach was used as a
+  reference and to make the lineage explicit. The GNU LGPLv3 text is included
+  in LICENSES/partialZipBrowser-LICENSE out of caution.
+
+The Apple Wiki - https://theapplewiki.com
+  The Apple Wiki is a community-maintained database of iBoot keys and firmware
+  information, used at runtime as a data source (IPSW download links and keys
+  pages). Its contents remain the work of The Apple Wiki contributors.
