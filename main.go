@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -131,6 +132,81 @@ func wikiComponentPaths(pageData map[string]string, entries []ZipEntry, comps []
 		}
 	}
 	return out
+}
+
+// componentKeys holds the IV/Key material for an image on The Apple Wiki.
+type componentKeys struct {
+	Image    string `json:"image"`
+	Filename string `json:"filename,omitempty"`
+	IV       string `json:"iv,omitempty"`
+	Key      string `json:"key,omitempty"`
+	KBAG     string `json:"kbag,omitempty"`
+}
+
+func looksNotEncrypted(v string) bool {
+	l := strings.ToLower(v)
+	for _, m := range notEncryptedMarkers {
+		if strings.Contains(l, m) {
+			return true
+		}
+	}
+	return false
+}
+
+var notEncryptedMarkers = []string{"unknown", "not encrypted", "none", "n/a"}
+
+// wikiFilename adapts the filename listed on the wiki to the one in the
+// archive: ramdisk/RootFS entries are listed as bare identifiers
+// ("058-49065-036") and the actual file in the IPSW is "<id>.dmg".
+func wikiFilename(tag, v string) string {
+	if strings.Contains(v, ".") {
+		return v
+	}
+	switch normalizeTag(tag) {
+	case "rootfs", "restoreramdisk", "updateramdisk":
+		return v + ".dmg"
+	}
+	return v
+}
+
+// keysForTag resolves the IV/Key for a component from the keys page. Returns
+// nil when the tag isn't listed at all. Values the wiki marks as
+// "unknown"/"not encrypted" are treated as absent. KBAG is IV+Key, matching
+// the convention used elsewhere.
+func keysForTag(pageData map[string]string, tag string) *componentKeys {
+	if len(pageData) == 0 {
+		return nil
+	}
+	cands := tagEquivalents(tag)
+	ck := &componentKeys{Image: tag}
+	for k, v := range pageData {
+		nk := normalizeTag(k)
+		for _, c := range cands {
+			switch {
+			case nk == c:
+				ck.Filename = wikiFilename(c, v)
+			case nk == c+"iv":
+				ck.IV = v
+			case nk == c+"key":
+				ck.Key = v
+			case nk == c+"kbag":
+				ck.KBAG = v
+			}
+		}
+	}
+	if ck.Filename == "" && ck.IV == "" && ck.Key == "" && ck.KBAG == "" {
+		return nil
+	}
+	if looksNotEncrypted(ck.IV) {
+		ck.IV = ""
+	}
+	if looksNotEncrypted(ck.Key) {
+		ck.Key = ""
+	}
+	if ck.KBAG == "" && ck.IV != "" && ck.Key != "" {
+		ck.KBAG = ck.IV + ck.Key
+	}
+	return ck
 }
 
 var wikiMetaKeys = map[string]bool{
@@ -342,6 +418,8 @@ type options struct {
 	expectedBuild string
 	images        []string
 	tagsOnly      bool
+	keysOnly      bool
+	jsonOut       bool
 }
 
 type stringList []string
@@ -371,6 +449,8 @@ Arguments:
 
 Without -image, the iBSS, iBEC, DeviceTree and kernelcache are downloaded.
 Use -tags to list the other images available in the IPSW, e.g. RestoreRamDisk.
+Use -keys to print the IV/Key of the requested images from The Apple Wiki
+keys page without downloading anything (add -json for machine-readable output).
 
 Flags:
 `)
@@ -387,6 +467,8 @@ func main() {
 	var imageFlag stringList
 	flag.Var(&imageFlag, "image", "download a specific image by BuildManifest tag instead of the default set (repeatable or comma-separated), e.g. -image RestoreRamDisk,LLB. Tags are case-insensitive and ignore punctuation (rootfs -> OS, sepfirmware -> SEP)")
 	tagsFlag := flag.Bool("tags", false, "list the available image tags in the IPSW for the selected board and exit")
+	keysFlag := flag.Bool("keys", false, "print the IV and Key for the requested images from The Apple Wiki keys page, then exit (does not download anything)")
+	jsonFlag := flag.Bool("json", false, "with -keys, print JSON instead of text")
 	listFlag := flag.Bool("list", false, "only list matching entries in the IPSW, don't download")
 	keepGoingFlag := flag.Bool("keep-going", false, "continue downloading other components if one fails")
 	flag.Usage = usage
@@ -413,8 +495,15 @@ func main() {
 	opts.boardconfig = *boardconfigFlag
 	opts.images = imageFlag
 	opts.tagsOnly = *tagsFlag
+	opts.keysOnly = *keysFlag
+	opts.jsonOut = *jsonFlag
 	opts.listOnly = *listFlag
 	opts.keepGoing = *keepGoingFlag
+
+	if opts.jsonOut && !opts.keysOnly {
+		fmt.Fprintln(os.Stderr, "error: -json only makes sense together with -keys")
+		usage()
+	}
 
 	if opts.device == "" || opts.version == "" {
 		usage()
@@ -707,15 +796,21 @@ func run(opts *options) error {
 	fmt.Printf("IPSW: %s\n", info.DownloadURL)
 	opts.expectedBuild = info.Build
 
+	comps := requestedComponents(opts.images)
+	explicit := len(opts.images) > 0
+
+	// -keys: print the IV/Key for the requested images from the wiki keys
+	// page. Needs no archive access at all.
+	if opts.keysOnly {
+		return printComponentKeys(info, comps, opts.jsonOut)
+	}
+
 	fmt.Println("Reading IPSW central directory...")
 	rzip, err := OpenRemoteZip(info.DownloadURL)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("Archive contains %d entries (%.1f MB)\n", len(rzip.Entries), float64(rzip.size)/(1024*1024))
-
-	comps := requestedComponents(opts.images)
-	explicit := len(opts.images) > 0
 
 	mres, err := resolveManifestComponents(rzip, opts, info, comps)
 	if err != nil {
@@ -900,6 +995,66 @@ func run(opts *options) error {
 	fmt.Printf("Done: %d file(s) downloaded to %s\n", downloaded, opts.outputDir)
 	if len(failures) > 0 {
 		return fmt.Errorf("some downloads failed:\n  %s", strings.Join(failures, "\n  "))
+	}
+	return nil
+}
+
+// printComponentKeys prints the IV/Key for the requested components from the
+// keys page. In JSON mode it prints an array of entries for only the found
+// tags; missing tags are warned about on stderr. Text mode prints one block
+// per tag with a "(not encrypted / unknown)" marker when the wiki doesn't
+// provide a key.
+func printComponentKeys(info *FirmwareInfo, comps []component, jsonOut bool) error {
+	found := make([]*componentKeys, 0, len(comps))
+	var missing []string
+	for _, c := range comps {
+		ck := keysForTag(info.PageData, c.tag)
+		if ck == nil {
+			missing = append(missing, c.tag)
+			continue
+		}
+		found = append(found, ck)
+	}
+
+	if jsonOut {
+		out, err := json.MarshalIndent(found, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(out))
+		for _, m := range missing {
+			fmt.Fprintf(os.Stderr, "note: %q not listed on the keys page\n", m)
+		}
+	} else {
+		fmt.Printf("Keys from The Apple Wiki (%s %s):\n", info.Version, info.Build)
+		for _, ck := range found {
+			if ck.Filename != "" {
+				fmt.Printf("%s (%s)\n", ck.Image, ck.Filename)
+			} else {
+				fmt.Printf("%s\n", ck.Image)
+			}
+			if ck.IV != "" {
+				fmt.Printf("  IV:   %s\n", ck.IV)
+			} else {
+				fmt.Printf("  IV:   (unknown or not encrypted)\n")
+			}
+			if ck.Key != "" {
+				fmt.Printf("  Key:  %s\n", ck.Key)
+			} else {
+				fmt.Printf("  Key:  (unknown or not encrypted)\n")
+			}
+			if ck.KBAG != "" {
+				fmt.Printf("  KBAG: %s\n", ck.KBAG)
+			}
+		}
+		for _, m := range missing {
+			fmt.Fprintf(os.Stderr, "  note: %q not listed on the keys page\n", m)
+		}
+	}
+
+	if len(found) == 0 {
+		return fmt.Errorf("none of the requested images are listed on the keys page (candidates: %s)",
+			strings.Join(missing, ", "))
 	}
 	return nil
 }

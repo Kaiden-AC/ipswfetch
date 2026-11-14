@@ -67,6 +67,8 @@ Flags:
 | `-boardconfig` | only download files matching this boardconfig (e.g. `d10ap`) |
 | `-image` | download a specific image by BuildManifest tag instead of the default set (repeatable, comma-separated), e.g. `-image RestoreRamDisk,LLB` |
 | `-tags` | list the image tags available in the IPSW for the selected board and exit |
+| `-keys` | print the IV and Key for the requested images (from The Apple Wiki keys page) without downloading |
+| `-json` | with `-keys`, print JSON instead of text |
 | `-list` | only list matching entries, don't download |
 | `-keep-going` | continue with other components if one fails |
 
@@ -96,6 +98,26 @@ board — run `-tags` to see them up front.
 
 Without `-image`, the default set (iBSS, iBEC, DeviceTree, kernelcache) is
 downloaded.
+
+## Fetching the IV and Key (`-keys`)
+
+`-keys` prints the IV, Key and KBAG for the requested images straight from
+The Apple Wiki keys page — no download, no archive access at all:
+
+```
+ipswfetch -keys iPhone9,3 15.4              # iBSS/iBEC/DeviceTree/kernelcache
+ipswfetch -keys -image iBoot,LLB iPhone9,3 15.4
+ipswfetch -json -keys -image iBoot iPhone9,3 15.4   # machine-readable output
+ipswfetch -keys iPhone1,2 2.0               # ancient firmware: everything listed
+```
+
+KBAG is printed as `IV || Key`, matching the wikiproxy convention. Tags that
+the wiki lists as `unknown` / `not encrypted` are reported as such; tags that
+aren't on the page at all are noted on stderr (and are absent from JSON
+output). Note what the wiki lists varies by era: as of this writing, iOS 12+
+keys pages (e.g. 12.5.7, 15.4) list only the boot-chain images
+(iBSS/iBEC/iBoot/LLB/SEPFirmware), while older pages (e.g. 9.3.5, iOS 2.x)
+list nearly everything (DeviceTree, kernelcache, RootFS, …).
 
 If the boardconfig can't be determined unambiguously (device articles with
 multiple board variants), the tool exits with an error listing the candidates
